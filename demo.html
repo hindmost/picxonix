@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1"> 
+        <title>Country by Outline [Picxonix Demo]</title>
+
+<!-- {
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap.min.css">
+        <link rel="stylesheet" href="//netdna.bootstrapcdn.com/bootstrap/3.1.1/css/bootstrap-theme.min.css">
+| -->
+        <link rel="stylesheet" type="text/css" href="//my-lab/cdn/bootstrap/3.1.1/css/bootstrap.min.css" />
+        <link rel="stylesheet" type="text/css" href="//my-lab/cdn/bootstrap/3.1.1/css/bootstrap-theme.min.css" />
+<!-- } -->
+        <style>
+#graphics {
+    position: relative;
+}
+.overlay {
+    position: absolute;
+    display: block;
+    opacity: 0.5;
+}
+#play:hover {
+    opacity: 1;
+} 
+#sidebar {
+    margin-left: 20px;
+    width: 230px;
+}
+#sidebar > .panel-heading {
+    font-weight: bold;
+    font-size: 18px;
+}
+#sidebar > .panel-footer {
+    background-color: #d9edf7;
+    color: black;
+}
+#answeropts {
+    width: 100%;
+}
+        </style>
+    </head>
+    <body>
+
+        <div class="container">
+            <div class="page-header">
+                <h1>Geography quiz: Identify countries by their outlines</h1>
+            </div>
+            <div class="wrapper clearfix">
+                <div id="graphics" class="pull-left"></div>
+                <div id="sidebar" class="pull-left panel panel-primary">
+                    <div class="panel-heading clearfix text-center">
+                        <span class="pull-left" title="Current Level (question)">
+                            <span id="status-progress-current">0</span>/<span id="status-progress-total">0</span>
+                        </span>
+                        <span id="status-time" title="Total Time">00:00</span>
+                        <span class="pull-right">
+                            <span id="status-points" title="Points (right answers)">0</span>
+                            <span id="status-faults" class="label label-danger" title="Faults (committed collisions)">0</span>
+                        </span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="answeropts" class="btn-group-vertical" role="group" aria-label="answer options"></div>
+                    </div>
+                    <div id="result" class="panel-footer hidden">
+                        <div class="result-msg hidden">Quiz completed! Your score: <strong>0</strong></div>
+                        <div class="result-msg hidden">Quiz failed: Too many faults</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/template" id="overlay-play-template">
+            <a href="#nextlevel" class="overlay" id="play" title="Next Level/Question"><img src="pics/play_btn.gif"/></a>
+        </script>
+
+        <script type="text/template" id="answeropts-template">
+            <% _.each(optionsout, function(el) { %>
+                <button type="button" class="btn btn-default clearfix" data-optionid="<%= el[0] %>">
+                    <span class="glyphicon glyphicon-ok pull-left hidden"></span><span class="glyphicon glyphicon-remove pull-left hidden"></span>
+                    <%= el[1] %>
+                </button>
+            <% }); %>
+        </script>
+
+<!-- {
+        <script type="text/javascript" src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+        <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.5.2/underscore-min.js"></script>
+        <script type="text/javascript" src="//maxcdn.bootstrapcdn.com/bootstrap/3.1.1/js/bootstrap.min.js"></script>
+| -->
+        <script type="text/javascript" src="//my-lab/cdn/jquery/jquery-1.7.2.min.js"></script>
+        <script type="text/javascript" src="//my-lab/cdn/underscore.js/1.5.2/underscore-min.js"></script>
+        <script type="text/javascript" src="//my-lab/cdn/bootstrap/3.1.1/js/bootstrap.min.js"></script>
+<!-- } -->
+        <script type="text/javascript" src="picxonix.js"></script>
+        <script type="text/javascript">
+$(function() {
+    var elCanvas = $('#graphics');
+    var size = picxonix(elCanvas[0], {
+        width: 600,
+        height: 500,
+        nBalls: 2,
+        nWarders: 1,
+        speedCursor: 7,
+        callback: function(iEvent) {
+            switch (iEvent) {
+                case 0: // animation frame
+                    return updateTime();
+                case 1: // collision
+                    return raiseFaults();
+                case 2: // conquer
+                    return raiseConquer();
+                default:
+            }
+        },
+        callbackOnFrame: true
+    });
+    if (!size) return;
+
+    var w = size.width, h = size.height;
+    elCanvas.css({width: w, height: h});
+    console.log(' size(contr)=(%d,%d); pos(playbtn)=(%d,%d)',w,h,x0,y0);
+
+    var aAnswers = [
+        "Argentina", "Australia", "Austria", "Brazil", "Cuba", "Greece", "India", "Japan"
+    ];
+    var aLevels = [
+        {"image": "pic1.png", "answer": 0, "optionsout": []},
+        {"image": "pic2.png", "answer": 1, "optionsout": []},
+        {"image": "pic3.png", "answer": 5, "optionsout": []}
+    ];
+    var nAnswers = aAnswers.length;
+    var nLevels = aLevels.length;
+    var iLevel = 0;
+    var tLevel = 0;
+    var nTimeLevel = 0;
+    var nTimeTotal = 0;
+    var nPoints = 0;
+    var nFaults = 0;
+    var bStarted = false, bPlay = false, bConquer = false;
+    $('#status-progress-total').html(nLevels);
+    var oLevel;
+    var x0 = Math.floor((w- 128)/ 2), y0 = Math.floor((h- 128)/ 2);
+    var elBtnPlay = $($('#overlay-play-template').html())
+        .css({left: x0+'px', top: y0+'px'})
+        .appendTo(elCanvas).hide()
+        .click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            startLevel();
+        });
+    console.log(' pos(playbtn)=(%d,%d)',x0,y0);
+    var elTime = $('#status-time');
+    var tplOptions = _.template($('#answeropts-template').html());
+    preloadLevel();
+
+    var keyHash = {37: 'left', 39: 'right', 38: 'up', 40: 'down', 32: 'stop'};
+    $(document).keydown(function(e) {
+        var key = e.which;
+        console.log('ON-keydown: key=%d',key);
+        if (key == 27) {
+            console.log(' pause/resume');
+            bPlay = !bPlay;
+            if (bStarted)
+                picxonix('play', bPlay);
+        }
+        if (!bPlay || !(key in keyHash)) return;
+        e.preventDefault();
+        picxonix('cursorDir', keyHash[key]);
+    });
+    elCanvas.click(function(e) {
+        if (!bPlay) return;
+        var pos0 = elCanvas.offset();
+        var x = e.pageX, y = e.pageY,
+            xc = x - pos0.left, yc = y - pos0.top;
+        console.log('ON-click: pos0=(%d,%d); pos(click)=(%d,%d); pos(canvas)=(%d,%d)',pos0.left,pos0.top,x,y,xc,yc);
+        picxonix('cursorDir', [xc, yc]);
+    });
+
+
+    function preloadLevel() {
+        oLevel = aLevels[iLevel++];
+        var img = new Image();
+        img.onload = function() {
+            elBtnPlay.show();
+        };
+        img.src = oLevel.image = 'pics/'+oLevel.image;
+        var aOpts = [], k0 = oLevel.answer;
+        for (var i = 0; i < 3; i++) {
+            for (var j = 100; j > 0; j--) {
+                var k = Math.floor(Math.random() * nAnswers);
+                if (!(k != k0 && aOpts.indexOf(k) < 0)) continue;
+                aOpts.push(k); break;
+            }
+            if (!j) return;
+        }
+        aOpts.splice(Math.floor(Math.random() * 4), 0, k0);
+        console.log('preloadLevel(): iLevel=%d; k0=%d; aOpts=[%s]',iLevel,k0,aOpts);
+        oLevel.optionsout = aOpts.map(function(k) { return [k, aAnswers[k]]; });
+    }
+
+    function startLevel() {
+        if (!oLevel) return;
+        elBtnPlay.hide();
+        console.log('startLevel(): iLevel=%d; nAnswers=%d',iLevel,nAnswers);
+        bStarted = bPlay = true; bConquer = false;
+        $('#status-progress-current').html(iLevel);
+        picxonix('level', oLevel);
+        tLevel = Date.now(); nTimeLevel = 0;
+        $('#answeropts').empty().html(tplOptions(oLevel))
+        .children().click(onClickAnswer);
+        enableOptions(false);
+    }
+
+    function onClickAnswer() {
+        $(this).blur();
+        enableOptions(false);
+        var id = $(this).data('optionid');
+        var bOk = id == oLevel.answer;
+        console.log('onClickAnswer(): id=%d; answer=%d; bOk=%d',id,oLevel.answer,bOk);
+        picxonix('play', false);
+        picxonix('end', true);
+        updateTime();
+        nTimeTotal += nTimeLevel;
+        if (bOk) {
+            nPoints++;
+            console.log(' nPoints=%d',nPoints);
+            $('#status-points').html(nPoints);
+        }
+        $(this).children('span').eq(bOk? 0 : 1).removeClass('hidden');
+        if (iLevel < nLevels)
+            preloadLevel();
+        else {
+            var score = 1000* nPoints/ nTimeLevel;
+            outResult(0).children('strong').html(score.toFixed(0));
+        }
+    }
+
+    function updateTime() {
+        var n = Math.floor((Date.now() - tLevel) / 1000);
+        if (n - nTimeLevel < 1) return;
+        console.log('updateTime(): nTimeLevel=%d(%d)',n,nTimeLevel);
+        nTimeLevel = n;
+        function str_pad(s) {
+            return Array(3 - s.length).join('0') + s;
+        }
+        n = nTimeLevel+ nTimeTotal;
+        var nm = String(Math.floor(n / 60)), ns = String(n % 60);
+        elTime.html(str_pad(nm)+':'+str_pad(ns));
+    }
+
+    function raiseFaults() {
+        console.log('raiseFaults():');
+        $('#status-faults').html(++nFaults);
+        if (nFaults < 3) return;
+        picxonix('end', false);
+        enableOptions(false);
+        outResult(1);
+    }
+
+    function raiseConquer() {
+        var data = picxonix('state');
+        console.log('raiseConquer(): data=%o',data);
+        if (!data) return false;
+        if (!bConquer) enableOptions(true);
+        bConquer = true;
+        var val = data.cleared;
+        console.log(' val=%f',val);
+        if (val < 75) return false;
+        setTimeout(function() {
+            picxonix('end', true);
+        }, 1000);
+        return true;
+    }
+
+    function enableOptions(bOn) {
+        $('#answeropts > button').prop('disabled', !bOn);
+    }
+
+    function outResult(i) {
+        return $('#result').removeClass('hidden')
+            .children('.result-msg').eq(i%2).removeClass('hidden');
+    }
+});
+        </script>
+    </body>
+</html>
