@@ -14,8 +14,19 @@
         <link rel="stylesheet" type="text/css" href="//my-lab/cdn/bootstrap/3.1.1/css/bootstrap-theme.min.css" />
 <!-- } -->
         <style>
+div.my-container {
+    width: 660px;
+    margin: 0 auto 10px;
+}
 #graphics {
     position: relative;
+}
+.my-center {
+    margin-left: auto;
+    margin-right: auto;
+}
+.my-panel {
+    margin-top: 10px;
 }
 .overlay {
     position: absolute;
@@ -25,51 +36,58 @@
 #play:hover {
     opacity: 1;
 } 
-#sidebar {
-    margin-left: 20px;
-    width: 230px;
+#statusbar {
+    width: 640px;
+    padding: 4px 9px;
+    border: 1px solid black;
+    background-color: #f2f2f2;
+    font-family: monospace;
 }
-#sidebar > .panel-heading {
+#statusbar > span {
+    margin-right: 9px;
+}
+#statusbar > span > span {
     font-weight: bold;
-    font-size: 18px;
 }
-#sidebar > .panel-footer {
-    background-color: #d9edf7;
-    color: black;
-}
-#answeropts {
-    width: 100%;
+.answer-btn {
+    width: 150px;
+    margin: 0 5px;
 }
         </style>
     </head>
     <body>
 
-        <div class="container">
-            <div class="page-header">
-                <h1>Geography quiz: Identify countries by their outlines</h1>
+        <div class="my-container">
+            <div class="text-center">
+                <h3>Geography quiz: Identify the country from its outline</h3>
             </div>
-            <div class="wrapper clearfix">
-                <div id="graphics" class="pull-left"></div>
-                <div id="sidebar" class="pull-left panel panel-primary">
-                    <div class="panel-heading clearfix text-center">
-                        <span class="pull-left" title="Current Level (question)">
-                            <span id="status-progress-current">0</span>/<span id="status-progress-total">0</span>
-                        </span>
-                        <span id="status-time" title="Total Time">00:00</span>
-                        <span class="pull-right">
-                            <span id="status-points" title="Points (right answers)">0</span>
-                            <span id="status-faults" class="label label-danger" title="Faults (committed collisions)">0</span>
-                        </span>
-                    </div>
-                    <div class="panel-body">
-                        <div id="answeropts" class="btn-group-vertical" role="group" aria-label="answer options"></div>
-                    </div>
-                    <div id="result" class="panel-footer hidden">
-                        <div class="result-msg hidden">Quiz completed! Your score: <strong>0</strong></div>
-                        <div class="result-msg hidden">Quiz failed: Too many faults</div>
-                    </div>
-                </div>
+
+            <div id="graphics" class="my-center"></div>
+
+            <div id="statusbar" class="my-panel my-center hidden">
+                <span title="current level (question)">
+                    Level: <span id="status-progress-current">0</span>/<span id="status-progress-total">0</span>
+                </span>
+                <span title="total time">
+                    Time: <span id="status-time">00:00</span>
+                </span>
+                <span title="total points (right answers)">
+                    Points: <span id="status-points">0</span>
+                </span>
+                <span title="committed faults (collisions)">
+                    Faults: <span id="status-faults">0</span>
+                </span>
+                <span id="status-status" class="hidden" title="game status">
+                    Status:
+                    <span class="hidden">Completed</span>
+                    <span class="hidden" title="too many faults">Failed</span>
+                </span>
+                <span id="status-score" class="hidden" title="game score">
+                    Score: <span>0</span>
+                </span>
             </div>
+
+            <div id="answeropts" class="my-panel text-center"></div>
         </div>
 
         <script type="text/template" id="overlay-play-template">
@@ -78,7 +96,7 @@
 
         <script type="text/template" id="answeropts-template">
             <% _.each(optionsout, function(el) { %>
-                <button type="button" class="btn btn-default clearfix" data-optionid="<%= el[0] %>">
+                <button type="button" class="btn btn-primary answer-btn clearfix" data-optionid="<%= el[0] %>">
                     <span class="glyphicon glyphicon-ok pull-left hidden"></span><span class="glyphicon glyphicon-remove pull-left hidden"></span>
                     <%= el[1] %>
                 </button>
@@ -205,6 +223,8 @@ $(function() {
         if (!oLevel) return;
         elBtnPlay.hide();
         console.log('startLevel(): iLevel=%d; nAnswers=%d',iLevel,nAnswers);
+        if (!bStarted)
+            $('.my-panel').removeClass('hidden');
         bStarted = bPlay = true; bConquer = false;
         $('#status-progress-current').html(iLevel);
         picxonix('level', oLevel);
@@ -234,7 +254,8 @@ $(function() {
             preloadLevel();
         else {
             var score = 1000* nPoints/ nTimeLevel;
-            outResult(0).children('strong').html(score.toFixed(0));
+            outResult(0);
+            $('#status-score > span').html(score.toFixed(0)).parent().removeClass('hidden');
         }
     }
 
@@ -280,8 +301,8 @@ $(function() {
     }
 
     function outResult(i) {
-        return $('#result').removeClass('hidden')
-            .children('.result-msg').eq(i%2).removeClass('hidden');
+        $('#status-status').removeClass('hidden')
+        .children('span').eq(i%2).removeClass('hidden');
     }
 });
         </script>
