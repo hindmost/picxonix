@@ -585,7 +585,9 @@
             if (i < 0) return;
             var n = this.aTrail.length;
             if (!n || dir !== this.dirTrail) {
-                this.aTrailNodes.push(n? this.aTrail[n-1] : i);
+                var iNode = n? this.aTrail[n-1] : i;
+                if (!n || iNode != this.aTrailNodes[this.aTrailNodes.length-1])
+                    this.aTrailNodes.push(iNode);
                 if (!n) {
                     var aPos = this.applyRelDirs(x, y, dir, [180]);
                     this.iPreTrail = this.find(aPos[0][0], aPos[0][1]);
@@ -612,7 +614,8 @@
         conquer: function() {
             var nTrail = this.aTrail.length;
             if (!nTrail) return;
-            this.aTrailNodes.push(this.aTrail[nTrail-1]);
+            if (nTrail > 1)
+                this.aTrailNodes.push(this.aTrail[nTrail-1]);
             var aConqRects = this._conquer() || this._buildTrailRects();
             this.aTrail = []; this.aTrailNodes = [];
             if (!aConqRects || !aConqRects.length) return;
@@ -644,16 +647,11 @@
             for (var d = 0; d < 2; d++) {
                 var dd = aDeltas[d];
                 var k = 0;
-                var sum = 0;
-                var pos0 = this.pos(this.aTrail[0]), pos = this.pos(this.aTrail[nTrail-1]);
-                if (Math.abs(pos[0] - pos0[0]) <= 1 && Math.abs(pos[1] - pos0[1]) <= 1) {
-                    aOutlineset.push([this.aTrailNodes.slice(), nTrail]);
-                    sum = nTrail;
-                }
+                var sum = 0, bSum = false;
                 for (var l = 0; l < nTrail && sum < nTrail; l++) {
                     var iStart = this.aTrail[l];
-                    pos = this.pos(iStart);
-                    pos0 = l? this.pos(this.aTrail[l - 1]) : posPre;
+                    var pos = this.pos(iStart);
+                    var pos0 = l? this.pos(this.aTrail[l - 1]) : posPre;
                     var x = pos[0], y = pos[1];
                     var dir = (dirset.find(x - pos0[0], y - pos0[1]) + dd + 360) % 360;
                     var aDirs = [dir];
@@ -671,10 +669,15 @@
                         var v = this.value(xt, yt);
                         if (v & CA_CLEAR || v & CA_TRAIL) continue;
                         ret = this._outline(xt, yt, dir);
-                        if (!ret || ret.length < 2) return false;
+                        if (!ret || ret.length < 3) return false;
                     }
                     if (!ret) continue;
-                    var len = ret[0], aNodes = ret[1], iEnd = aNodes[aNodes.length-1];
+                    var len = ret[0], aNodes = ret[1], bClosed = ret[2], iEnd = aNodes[aNodes.length-1];
+                    if (bClosed) {
+                        aOutlineset.push([aNodes, len]);
+                        bSum = true;
+                        continue;
+                    }
                     var aXtra = [iStart];
                     for (var i = l+1; i < nTrail && this.aTrail[i] != iEnd; i++) {
                         if (this.aTrail[i] == this.aTrailNodes[k+1])
@@ -685,7 +688,7 @@
                     sum += i - l + 1;
                     l = i;
                 }
-                if (!sum) return false;
+                if (!sum && !bSum) return false;
                 if (sum < nTrail) bAddTrail = true;
             }
             if (!aOutlineset.length)
@@ -705,24 +708,62 @@
             return bAddTrail? aRects.concat(this._buildTrailRects()) : aRects;
         },
         _outline: function(x0, y0, dir) {
-            var aNodes = [];
+            var aNodes = [], aUniqNodes = [], aUsedDirs = [], aBackDirs = [];
             var x = x0, y = y0,
-                lim = 6 * (this.nW + this.nH), n = 0;
+                lim = 6 * (this.nW + this.nH), n = 0, bClosed = false;
             do {
-                var aPos = this.applyRelDirs(x,y, dir, [0, -90, 90, 135]);
-                var aVals = aPos.map(function(el) { return el[3]; });
-                var k = aVals[0] & CA_CLEAR? (aVals[1] & CA_CLEAR? 2 : 1) :
-                    (aVals[1] & CA_CLEAR || aVals[2] & CA_CLEAR? 0 : aVals[3] & CA_CLEAR? 2 : 1);
-                var pos = aPos[k];
-                if (pos[2] != dir) aNodes.push(this.find(x,y));
+                bClosed = n && x == x0 && y == y0;
+                var iCurr = this.find(x,y), iUniq = aUniqNodes.indexOf(iCurr);
+                var aCurrUsed = iUniq >= 0? aUsedDirs[iUniq] : [];
+                var aCurrBack = iUniq >= 0? aBackDirs[iUniq] : [];
+                var aPosOpts = this.applyRelDirs(x,y, dir, [-90, 0, 90]);
+                var aTestDirs = [180+45, -45, 45, 180-45];
+                var aPassIdx = [], aPassWeight = [];
+                for (var i = 0; i < 3; i++) {
+                    var d = aPosOpts[i][2];
+                    if (aCurrUsed.indexOf(d) >= 0) continue;
+                    if (aPosOpts[i][3] & CA_CLEAR) continue;
+                    var aTestOpts = this.applyRelDirs(x,y, dir, aTestDirs.slice(i,i+2));
+                    var b1 = aTestOpts[0][3] & CA_CLEAR, b2 = aTestOpts[1][3] & CA_CLEAR;
+                    var b = b1 || b2 || (i == 1? aPosOpts[0][3] & CA_CLEAR || aPosOpts[2][3] & CA_CLEAR : aPosOpts[1][3] & CA_CLEAR);
+                    if (!b) continue;
+                    aPassIdx.push(i);
+                    aPassWeight.push(
+                        (b1 && b2? 0 : b1 || b2? 1 : 2) + (aCurrBack.indexOf(d) >= 0? 3 : 0)
+                    );
+                }
+                var nPass = aPassIdx.length;
+                var min = false, idx = false;
+                for (i = 0; i < nPass; i++) {
+                    if (!i || aPassWeight[i] < min) {
+                        min = aPassWeight[i]; idx = aPassIdx[i];
+                    }
+                }
+                var pos = nPass? aPosOpts[idx] : this.applyRelDirs(x,y, dir, [180])[0];
+                var dir0 = dir;
                 x = pos[0]; y = pos[1]; dir = pos[2];
+                if (pos[2] == dir0) continue;
+                nPass? aNodes.push(iCurr) : aNodes.push(iCurr, iCurr);
+                dir0 = (dir0 + 180) % 360;
+                if (iUniq < 0) {
+                    aUniqNodes.push(iCurr);
+                    aUsedDirs.push([dir]);
+                    aBackDirs.push([dir0]);
+                }
+                else {
+                    aUsedDirs[iUniq].push(dir);
+                    aBackDirs[iUniq].push(dir0);
+                }
             }
             while (n++ < lim && !(this.value(x, y) & CA_TRAIL));
             if (!(n < lim)) return false;
-            aNodes.push(this.find(x,y));
-            return [n+1, aNodes];
+            aNodes.push(bClosed? iCurr : this.find(x,y));
+            if (bClosed && aNodes[0] != (iCurr = this.find(x0,y0))) aNodes.unshift(iCurr);
+            return [n+1, aNodes, bClosed];
         },
         _buildTrailRects: function() {
+            if (this.aTrailNodes.length == 1)
+                this.aTrailNodes.push(this.aTrailNodes[0]);
             var aRects = [];
             for (var n = this.aTrailNodes.length, i = 0; i < n-1; i++) {
                 var pos1 = this.pos(this.aTrailNodes[i]), pos2 = this.pos(this.aTrailNodes[i+1]);
@@ -734,11 +775,18 @@
             return aRects;
         },
         _buildConquerRects: function(aOutline) {
-            if (aOutline.length < 4 || aOutline.length % 2 != 0) return false;
+            if (aOutline.length < 4) return false;
             var aNodes = this.posMap(aOutline);
+            var n = aNodes.length;
+            var bLast = aNodes[0][0] == aNodes[n-1][0];
+            if (!(aNodes[n-2][0] == aNodes[n-1][0] ^ bLast))
+                aNodes.pop();
+            if (!(aNodes[0][0] == aNodes[1][0] ^ bLast))
+                aNodes.shift();
+            if (aNodes.length % 2 != 0) return false;
             var aRects = [];
             for (var l = 0; l < 10 && aNodes.length > 4; l++) {
-                var n = aNodes.length;
+                n = aNodes.length;
                 var dim1 = 0, dim2 = 0, iBase = 0, iCo = 0;
                 var posB1, posB2, posT1, posT2;
                 for (var i = 0; i < n; i++) {
@@ -897,9 +945,8 @@
         // set/change movement direction:
         setDir: function(dir) {
             if (dir === this.dir) return;
-            if (this.state && Math.abs(dir - this.dir) == 180) {
+            if (this.state && this.dir !== false && Math.abs(dir - this.dir) == 180)
                 return;
-            }
             this.dir = dir;
         }
     };
