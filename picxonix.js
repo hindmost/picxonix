@@ -778,11 +778,13 @@
             if (aOutline.length < 4) return false;
             var aNodes = this.posMap(aOutline);
             var n = aNodes.length;
-            var bLast = aNodes[0][0] == aNodes[n-1][0];
-            if (!(aNodes[n-2][0] == aNodes[n-1][0] ^ bLast))
-                aNodes.pop();
-            if (!(aNodes[0][0] == aNodes[1][0] ^ bLast))
-                aNodes.shift();
+            if (n > 4) {
+                var bLast = aNodes[0][0] == aNodes[n-1][0] && aNodes[0][1] != aNodes[n-1][1];
+                if (!(aNodes[n-2][0] == aNodes[n-1][0] && aNodes[n-2][1] != aNodes[n-1][1] ^ bLast))
+                    aNodes.pop();
+                if (!(aNodes[0][0] == aNodes[1][0] && aNodes[0][1] != aNodes[1][1] ^ bLast))
+                    aNodes.shift();
+            }
             if (aNodes.length % 2 != 0) return false;
             var aRects = [];
             for (var l = 0; l < 10 && aNodes.length > 4; l++) {
