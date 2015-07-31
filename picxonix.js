@@ -611,6 +611,9 @@
             }
             this.aTrail = []; this.aTrailNodes = [];
         },
+        getPreTrail: function() {
+            return this.iPreTrail;
+        },
         conquer: function() {
             var nTrail = this.aTrail.length;
             if (!nTrail) return;
@@ -640,21 +643,25 @@
         },
         _conquer: function() {
             var nTrail = this.aTrail.length, nNodes = this.aTrailNodes.length;
-            var aOutlineset = [];
+            var dz = Math.abs(this.aTrailNodes[0] - this.aTrailNodes[nNodes-1]);
+            var aOutlineset = [], bClosedTrail = false;
+            if (bClosedTrail = nNodes >= 4 && dz == 1 || dz == this.nWx) {
+                aOutlineset.push([this.aTrailNodes, 1]);
+            }
             var bAddTrail = false;
             var posPre = this.pos(this.iPreTrail), posCr = cursor.pos();
             var aDeltas = [-90, 90];
             for (var d = 0; d < 2; d++) {
                 var dd = aDeltas[d];
                 var k = 0;
-                var sum = 0, bSum = false;
+                var sum = 0, bSum = false, bEndAtNode = false;
                 for (var l = 0; l < nTrail && sum < nTrail; l++) {
                     var iStart = this.aTrail[l];
                     var pos = this.pos(iStart);
                     var pos0 = l? this.pos(this.aTrail[l - 1]) : posPre;
                     var x = pos[0], y = pos[1];
                     var dir = (dirset.find(x - pos0[0], y - pos0[1]) + dd + 360) % 360;
-                    var aDirs = [dir];
+                    var aDirs = bEndAtNode? [] : [dir];
                     if (this.aTrailNodes.indexOf(iStart) >= 0) {
                         var pos2 = l < nTrail - 1? this.pos(this.aTrail[l + 1]) : posCr;
                         dir = (dirset.find(pos2[0] - x, pos2[1] - y) + dd + 360) % 360;
@@ -671,6 +678,7 @@
                         ret = this._outline(xt, yt, dir);
                         if (!ret || ret.length < 3) return false;
                     }
+                    bEndAtNode = false;
                     if (!ret) continue;
                     var len = ret[0], aNodes = ret[1], bClosed = ret[2], iEnd = aNodes[aNodes.length-1];
                     if (bClosed) {
@@ -686,10 +694,10 @@
                     if (i >= nTrail) continue;
                     aOutlineset.push([aNodes.concat(aXtra.reverse()), len + i - l]);
                     sum += i - l + 1;
-                    l = i;
+                    l = (bEndAtNode = this.aTrail[i] == this.aTrailNodes[k+1])? i-1 : i;
                 }
-                if (!sum && !bSum) return false;
-                if (sum < nTrail) bAddTrail = true;
+                if (!sum && !bSum && !bClosedTrail) return false;
+                if (sum < nTrail && !bClosedTrail) bAddTrail = true;
             }
             if (!aOutlineset.length)
                 return false;
@@ -711,21 +719,24 @@
             var aNodes = [], aUniqNodes = [], aUsedDirs = [], aBackDirs = [];
             var x = x0, y = y0,
                 lim = 6 * (this.nW + this.nH), n = 0, bClosed = false;
+            function isClear(arr) {
+                return arr[3] & CA_CLEAR;
+            }
             do {
                 bClosed = n && x == x0 && y == y0;
                 var iCurr = this.find(x,y), iUniq = aUniqNodes.indexOf(iCurr);
                 var aCurrUsed = iUniq >= 0? aUsedDirs[iUniq] : [];
                 var aCurrBack = iUniq >= 0? aBackDirs[iUniq] : [];
-                var aPosOpts = this.applyRelDirs(x,y, dir, [-90, 0, 90]);
-                var aTestDirs = [180+45, -45, 45, 180-45];
+                var aPosOpts = this.applyRelDirs(x,y, dir, [-90, 90, 0]);
+                var aTestDirs = [180+45, -45, 45, 180-45, -45, 45];
                 var aPassIdx = [], aPassWeight = [];
                 for (var i = 0; i < 3; i++) {
                     var d = aPosOpts[i][2];
                     if (aCurrUsed.indexOf(d) >= 0) continue;
-                    if (aPosOpts[i][3] & CA_CLEAR) continue;
-                    var aTestOpts = this.applyRelDirs(x,y, dir, aTestDirs.slice(i,i+2));
-                    var b1 = aTestOpts[0][3] & CA_CLEAR, b2 = aTestOpts[1][3] & CA_CLEAR;
-                    var b = b1 || b2 || (i == 1? aPosOpts[0][3] & CA_CLEAR || aPosOpts[2][3] & CA_CLEAR : aPosOpts[1][3] & CA_CLEAR);
+                    if (isClear(aPosOpts[i])) continue;
+                    var aTestOpts = this.applyRelDirs(x,y, dir, aTestDirs.slice(i*2,i*2+2));
+                    var b1 = isClear(aTestOpts[0]), b2 = isClear(aTestOpts[1]);
+                    var b = b1 || b2 || (i == 2? isClear(aPosOpts[0]) || isClear(aPosOpts[1]) : isClear(aPosOpts[2]));
                     if (!b) continue;
                     aPassIdx.push(i);
                     aPassWeight.push(
@@ -757,8 +768,14 @@
             }
             while (n++ < lim && !(this.value(x, y) & CA_TRAIL));
             if (!(n < lim)) return false;
-            aNodes.push(bClosed? iCurr : this.find(x,y));
-            if (bClosed && aNodes[0] != (iCurr = this.find(x0,y0))) aNodes.unshift(iCurr);
+            if (bClosed) {
+                aNodes.push(iCurr);
+                if (aNodes[0] != (iCurr = this.find(x0,y0))) aNodes.unshift(iCurr);
+                var nNodes = aNodes.length;
+                if (nNodes % 2 && aNodes[0] == aNodes[nNodes-1]) aNodes.pop();
+            }
+            else
+                aNodes.push(this.find(x,y));
             return [n+1, aNodes, bClosed];
         },
         _buildTrailRects: function() {
@@ -778,11 +795,18 @@
             if (aOutline.length < 4) return false;
             var aNodes = this.posMap(aOutline);
             var n = aNodes.length;
-            if (n > 4) {
-                var bLast = aNodes[0][0] == aNodes[n-1][0] && aNodes[0][1] != aNodes[n-1][1];
-                if (!(aNodes[n-2][0] == aNodes[n-1][0] && aNodes[n-2][1] != aNodes[n-1][1] ^ bLast))
-                    aNodes.pop();
-                if (!(aNodes[0][0] == aNodes[1][0] && aNodes[0][1] != aNodes[1][1] ^ bLast))
+            if (n > 4 && n % 2 != 0) {
+                var b1 = aNodes[0][0] == aNodes[n-1][0], b2;
+                if (b1 ^ aNodes[0][1] == aNodes[n-1][1]) {
+                    b2 = aNodes[n-2][0] == aNodes[n-1][0];
+                    if (!(b2 ^ b1) && b2 ^ aNodes[n-2][1] == aNodes[n-1][1])
+                        aNodes.pop();
+                    b2 = aNodes[0][0] == aNodes[1][0];
+                    if (!(b2 ^ b1) && b2 ^ aNodes[0][1] == aNodes[1][1])
+                        aNodes.shift();
+                }
+                b1 = aNodes[0][0] == aNodes[1][0]; b2 = aNodes[1][0] == aNodes[2][0];
+                if (!(b1 ^ b2) && b1 ^ aNodes[0][1] == aNodes[1][1] && b2 ^ aNodes[1][1] == aNodes[2][1])
                     aNodes.shift();
             }
             if (aNodes.length % 2 != 0) return false;
@@ -816,7 +840,7 @@
                     for (var j = i% 2; j < n; j+= 2) {
                         if (j == i) continue;
                         var pos = aNodes[j], pos2 = aNodes[(j+1)%n], h;
-                        if (pos[k2] == pos2[k2] && (h = sgn*(pos[k2]- co2)) > 0 && h < min &&
+                        if (pos[k2] == pos2[k2] && (h = sgn*(pos[k2]- co2)) >= 0 && h < min &&
                             pos[k] > left && pos[k] < right && pos2[k] > left && pos2[k] < right)
                             break;
                     }
@@ -841,11 +865,13 @@
                 aRects.push(rect);
                 if (bC) {
                     posB2[iCo2] += dim2;
-                    aNodes.splice(iBase,1); aNodes.splice(iT1,1);
+                    aNodes.splice(iBase,1);
+                    aNodes.splice(iT1 < iBase? iT1 : iT1-1, 1);
                 }
                 else {
                     posB1[iCo2] += dim2;
-                    aNodes.splice(iT2,1); aNodes.splice(iB2,1);
+                    aNodes.splice(iT2,1);
+                    aNodes.splice(iB2 < iT2? iB2 : iB2-1, 1);
                 }
             }
             var aX = aNodes.map(function(v) {return v[0]});
@@ -910,7 +936,10 @@
             }
             this.x = x;
             this.y = y;
-            if (bEnd) {
+            if (!bEnd) return;
+            if (cellset.getPreTrail() == cellset.find(x,y))
+                bCollision = true;
+            else {
                 this.dir = this.state = false;
                 bConquer = true;
             }
@@ -940,14 +969,14 @@
         pos: function() {
             return [this.x, this.y];
         },
-        // get current position:
+        // get current movement direction:
         getDir: function() {
             return this.dir;
         },
         // set/change movement direction:
         setDir: function(dir) {
             if (dir === this.dir) return;
-            if (this.state && this.dir !== false && Math.abs(dir - this.dir) == 180)
+            if (this.state && this.dir !== false && dir !== false && Math.abs(dir - this.dir) == 180)
                 return;
             this.dir = dir;
         }
