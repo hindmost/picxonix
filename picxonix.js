@@ -384,7 +384,7 @@
             warders: nWarders,
             speedCursor: cfgLevel.speedCursor,
             speedEnemy: cfgLevel.speedEnemy,
-            cleared: cellset.getPercentage()
+            cleared: cellset.getConqueredRatio()
         };
     }
 
@@ -453,23 +453,23 @@
         }
     };
 
-    // The set of available cells:
+    // The playing field grid (set of available cells):
     cellset = {
-        nW: 0,
-        nH: 0,
-        nWx: 0,
-        nCleared: 0,
-        dirTrail: 0,
-        iPreTrail: 0,
-        aCells: [],
-        aTrail: [],
-        aTrailNodes: [],
-        aTrailRects: [],
+        nW: 0, // width of image in cells
+        nH: 0, // height of image in cells
+        nWx: 0, // width of grid in cells
+        nConquered: 0, // number of conquered cells
+        dirTrail: 0, // last direction of the cursor trail (movement)
+        cellPreTrail: 0, // index of cell preceding the cursor trail cells
+        aCells: [], // array mapping cell index in the grid to a value indicating type of this cell
+        aTrail: [], // array of the cursor trail cells' indices
+        aTrailNodes: [], // array of the cursor trail node cells' indices
+        aTrailRects: [], // array of rectangles comprising the cursor trail line
         reset: function() {
             var nW = this.nW = Math.floor(width / sizeCell);
             var nH = this.nH = Math.floor(height / sizeCell);
             var n = (this.nWx = nW+4)* (nH+4);
-            this.nCleared = 0;
+            this.nConquered = 0;
             this.aCells = [];
             var aAll = [];
             for (var i = 0; i < n; i++) {
@@ -493,9 +493,11 @@
         isPosValid: function(x, y) {
             return x >= -2 && x < this.nW+2 && y >= -2 && y < this.nH+2;
         },
-        find: function(x, y) {
+        // get index of given cell in the grid
+        index: function(x, y) {
             return this.isPosValid(x, y) ? (this.nWx)*(y+2) + x+2 : -1;
         },
+        // convert index of a cell to appropriate position (coordinates) in the grid
         pos: function(i) {
             return [i % this.nWx - 2, Math.floor(i / this.nWx)-2];
         },
@@ -504,21 +506,21 @@
             return arr.map(function(v) { return _this.pos(v) });
         },
         value: function(x, y) {
-            var i = this.find(x,y);
+            var i = this.index(x,y);
             return i >= 0? this.aCells[i] : 0;
         },
         set: function(x, y, v) {
-            var i = this.find(x,y);
+            var i = this.index(x,y);
             if (i >= 0) this.aCells[i] = v;
             return i;
         },
         setOn: function(x, y, v) {
-            var i = this.find(x,y);
+            var i = this.index(x,y);
             if (i >= 0) this.aCells[i] |= v;
             return i;
         },
         setOff: function(x, y, v) {
-            var i = this.find(x,y);
+            var i = this.index(x,y);
             if (i >= 0) this.aCells[i] &= ~v;
             return i;
         },
@@ -590,7 +592,7 @@
                     this.aTrailNodes.push(iNode);
                 if (!n) {
                     var aPos = this.applyRelDirs(x, y, dir, [180]);
-                    this.iPreTrail = this.find(aPos[0][0], aPos[0][1]);
+                    this.cellPreTrail = this.index(aPos[0][0], aPos[0][1]);
                 }
             }
             this.aTrail.push(i);
@@ -611,9 +613,10 @@
             }
             this.aTrail = []; this.aTrailNodes = [];
         },
-        getPreTrail: function() {
-            return this.iPreTrail;
+        getPreTrailCell: function() {
+            return this.cellPreTrail;
         },
+        // wrapper of conquered regions detection
         conquer: function() {
             var nTrail = this.aTrail.length;
             if (!nTrail) return;
@@ -629,7 +632,7 @@
                     for (var y = 0; y < h; y++) {
                         if (this.value(x + x0, y + y0, CA_CLEAR) & CA_CLEAR) continue;
                         this.set(x + x0, y + y0, CA_CLEAR);
-                        this.nCleared++;
+                        this.nConquered++;
                     }
                 }
             }
@@ -638,36 +641,39 @@
             }
             aConqRects = [];
         },
-        getPercentage: function() {
-            return this.nCleared / (this.nW * this.nH) * 100;
+        getConqueredRatio: function() {
+            return this.nConquered / (this.nW * this.nH) * 100;
         },
+        // conquered regions (polygons) detection:
         _conquer: function() {
             var nTrail = this.aTrail.length, nNodes = this.aTrailNodes.length;
-            var dz = Math.abs(this.aTrailNodes[0] - this.aTrailNodes[nNodes-1]);
-            var aOutlineset = [], bClosedTrail = false;
-            if (bClosedTrail = nNodes >= 4 && dz == 1 || dz == this.nWx) {
+            var aOutlineset = []; // outlines (boundaries) of found regions
+            var delta;
+            var bClosedTrail = nNodes >= 4 &&
+                ((delta = Math.abs(this.aTrailNodes[0] - this.aTrailNodes[nNodes-1])) == 1 || delta == this.nWx);
+            if (bClosedTrail) { // if the cursor trail is self-closed
                 aOutlineset.push([this.aTrailNodes, 1]);
             }
-            var bAddTrail = false;
-            var posPre = this.pos(this.iPreTrail), posCr = cursor.pos();
+            var bAddTrailRects = false;
+            var posPre = this.pos(this.cellPreTrail), posCr = cursor.pos();
             var aDeltas = [-90, 90];
-            for (var d = 0; d < 2; d++) {
-                var dd = aDeltas[d];
-                var k = 0;
-                var sum = 0, bSum = false, bEndAtNode = false;
+            for (var side = 0; side < 2; side++) {
+                delta = aDeltas[side];
+                var iLastNode = 0;
+                var sum = 0, bNonTangent = false, bEndAtNode = false;
                 for (var l = 0; l < nTrail && sum < nTrail; l++) {
-                    var iStart = this.aTrail[l];
-                    var pos = this.pos(iStart);
+                    var cellStart = this.aTrail[l];
+                    var pos = this.pos(cellStart);
                     var pos0 = l? this.pos(this.aTrail[l - 1]) : posPre;
                     var x = pos[0], y = pos[1];
-                    var dir = (dirset.find(x - pos0[0], y - pos0[1]) + dd + 360) % 360;
+                    var dir = (dirset.find(x - pos0[0], y - pos0[1]) + delta + 360) % 360;
                     var aDirs = bEndAtNode? [] : [dir];
-                    if (this.aTrailNodes.indexOf(iStart) >= 0) {
+                    if (this.aTrailNodes.indexOf(cellStart) >= 0) {
                         var pos2 = l < nTrail - 1? this.pos(this.aTrail[l + 1]) : posCr;
-                        dir = (dirset.find(pos2[0] - x, pos2[1] - y) + dd + 360) % 360;
+                        dir = (dirset.find(pos2[0] - x, pos2[1] - y) + delta + 360) % 360;
                         if (dir != aDirs[0]) aDirs.push(dir);
                     }
-                    if (this.aTrail[l] == this.aTrailNodes[k+1]) ++k;
+                    if (this.aTrail[l] == this.aTrailNodes[iLastNode+1]) ++iLastNode;
                     var ret = 0;
                     for (var nDs = aDirs.length, j = 0; j < nDs && !ret; j++) {
                         dir = aDirs[j];
@@ -675,56 +681,53 @@
                         var xt = x + vec[0], yt = y + vec[1];
                         var v = this.value(xt, yt);
                         if (v & CA_CLEAR || v & CA_TRAIL) continue;
-                        ret = this._outline(xt, yt, dir);
-                        if (!ret || ret.length < 3) return false;
+                        ret = this._findOutline(xt, yt, dir, l, iLastNode);
                     }
                     bEndAtNode = false;
                     if (!ret) continue;
-                    var len = ret[0], aNodes = ret[1], bClosed = ret[2], iEnd = aNodes[aNodes.length-1];
-                    if (bClosed) {
-                        aOutlineset.push([aNodes, len]);
-                        bSum = true;
-                        continue;
+                    var aNodes = ret[0], len = ret[1], lenTangent = ret[2];
+                    if (ret.length > 3) {
+                        iLastNode = ret[3];
+                        l = ret[4];
+                        bEndAtNode = ret[5];
                     }
-                    var aXtra = [iStart];
-                    for (var i = l+1; i < nTrail && this.aTrail[i] != iEnd; i++) {
-                        if (this.aTrail[i] == this.aTrailNodes[k+1])
-                            aXtra.push(this.aTrailNodes[++k]);
-                    }
-                    if (i >= nTrail) continue;
-                    aOutlineset.push([aNodes.concat(aXtra.reverse()), len + i - l]);
-                    sum += i - l + 1;
-                    l = (bEndAtNode = this.aTrail[i] == this.aTrailNodes[k+1])? i-1 : i;
+                    aOutlineset.push([aNodes, len]);
+                    sum += lenTangent;
+                    if (!lenTangent) bNonTangent = true;
                 }
-                if (!sum && !bSum && !bClosedTrail) return false;
-                if (sum < nTrail && !bClosedTrail) bAddTrail = true;
+                if (!sum && !bNonTangent && !bClosedTrail) return false;
+                if (sum < nTrail && !bClosedTrail) bAddTrailRects = true;
             }
             if (!aOutlineset.length)
                 return false;
-            aOutlineset.sort(function (el1, el2) { return el1[1] - el2[1]; });
-            var aRects = [], n = aOutlineset.length, b = false;
-            for (i = 0; i < n; i++) {
-                if (i == n- 1 && !b) break;
+            aOutlineset.sort(function (el1, el2) {
+                return el1[1] - el2[1];
+            });
+            var aRects = [], n = aOutlineset.length, bUnbroken = true;
+            for (var i = 0; i < (bUnbroken? n-1 : n); i++) {
                 ret = this._buildConquerRects(aOutlineset[i][0]);
                 if (ret)
                     aRects = aRects.concat(ret);
                 else
-                    b = true;
+                    bUnbroken = false;
             }
             if (!aRects.length)
                 return false;
-            return bAddTrail? aRects.concat(this._buildTrailRects()) : aRects;
+            return bAddTrailRects? aRects.concat(this._buildTrailRects()) : aRects;
         },
-        _outline: function(x0, y0, dir) {
-            var aNodes = [], aUniqNodes = [], aUsedDirs = [], aBackDirs = [];
-            var x = x0, y = y0,
-                lim = 6 * (this.nW + this.nH), n = 0, bClosed = false;
+        // find outline of conquered region (polygon)
+        //  from given cell position (x0, y0) and starting direction (dir)
+        //  as well as indices of starting cell and last node cell in the trail:
+        _findOutline: function(x0, y0, dir, iStartCell, iLastNode) {
             function isClear(arr) {
                 return arr[3] & CA_CLEAR;
             }
+            var aNodes = [], aUniqNodes = [], aUsedDirs = [], aBackDirs = [];
+            var x = x0, y = y0,
+                lim = 6 * (this.nW + this.nH), n = 0, bClosed = false;
             do {
                 bClosed = n && x == x0 && y == y0;
-                var iCurr = this.find(x,y), iUniq = aUniqNodes.indexOf(iCurr);
+                var cellCurr = this.index(x,y), iUniq = aUniqNodes.indexOf(cellCurr);
                 var aCurrUsed = iUniq >= 0? aUsedDirs[iUniq] : [];
                 var aCurrBack = iUniq >= 0? aBackDirs[iUniq] : [];
                 var aPosOpts = this.applyRelDirs(x,y, dir, [-90, 90, 0]);
@@ -754,10 +757,10 @@
                 var dir0 = dir;
                 x = pos[0]; y = pos[1]; dir = pos[2];
                 if (pos[2] == dir0) continue;
-                nPass? aNodes.push(iCurr) : aNodes.push(iCurr, iCurr);
+                nPass? aNodes.push(cellCurr) : aNodes.push(cellCurr, cellCurr);
                 dir0 = (dir0 + 180) % 360;
                 if (iUniq < 0) {
-                    aUniqNodes.push(iCurr);
+                    aUniqNodes.push(cellCurr);
                     aUsedDirs.push([dir]);
                     aBackDirs.push([dir0]);
                 }
@@ -769,15 +772,29 @@
             while (n++ < lim && !(this.value(x, y) & CA_TRAIL));
             if (!(n < lim)) return false;
             if (bClosed) {
-                aNodes.push(iCurr);
-                if (aNodes[0] != (iCurr = this.find(x0,y0))) aNodes.unshift(iCurr);
+                aNodes.push(cellCurr);
+                if (aNodes[0] != (cellCurr = this.index(x0,y0))) aNodes.unshift(cellCurr);
                 var nNodes = aNodes.length;
                 if (nNodes % 2 && aNodes[0] == aNodes[nNodes-1]) aNodes.pop();
+                return [aNodes, n+1, 0];
             }
-            else
-                aNodes.push(this.find(x,y));
-            return [n+1, aNodes, bClosed];
+            var cellStart = this.aTrail[iStartCell], cellEnd = this.index(x,y);
+            aNodes.push(cellEnd);
+            var nTrail = this.aTrail.length;
+            var aTangentNodes = [cellStart];
+            for (var l = iStartCell+1; l < nTrail && this.aTrail[l] != cellEnd; l++) {
+                if (this.aTrail[l] == this.aTrailNodes[iLastNode+1])
+                    aTangentNodes.push(this.aTrailNodes[++iLastNode]);
+            }
+            var bEndAtNode = this.aTrail[l] == this.aTrailNodes[iLastNode+1];
+            if (bEndAtNode) l--;
+            var lenTangent = l - iLastNode;
+            return [
+                aNodes.concat(aTangentNodes.reverse()), n+1+lenTangent, lenTangent,
+                iLastNode, l, bEndAtNode
+            ];
         },
+        // break the cursor trail line into a set of rectangles:
         _buildTrailRects: function() {
             if (this.aTrailNodes.length == 1)
                 this.aTrailNodes.push(this.aTrailNodes[0]);
@@ -791,7 +808,18 @@
             }
             return aRects;
         },
+        // break region specified by its outline into a set of rectangles:
         _buildConquerRects: function(aOutline) {
+            // checks if rectangle contains at least one ball (enemy):
+            function containBall(rect) {
+                var x1 = rect[0], x2 = x1+ rect[2] - 1;
+                var y1 = rect[1], y2 = y1+ rect[3] - 1;
+                for (var i = 0; i < nBalls; i++) {
+                    var o = aBalls[i], x = o.x, y = o.y;
+                    if (x >= x1 && x <= x2 && y >= y1 && y <= y2) return true;
+                }
+                return false;
+            }
             if (aOutline.length < 4) return false;
             var aNodes = this.posMap(aOutline);
             var n = aNodes.length;
@@ -861,7 +889,7 @@
                 pos0[iCo2] = Math.min(posB1[iCo2], posB2[iCo2]) + (aDim[iCo2] < 0? aDim[iCo2]: 0);
                 var rect = [pos0[0], pos0[1], Math.abs(aDim[0])+1, Math.abs(aDim[1])+1];
                 var bC = Math.abs(posT1[iCo2] - posB1[iCo2]) == Math.abs(dim2);
-                if (this._containBall(rect)) return false;
+                if (containBall(rect)) return false;
                 aRects.push(rect);
                 if (bC) {
                     posB2[iCo2] += dim2;
@@ -879,19 +907,9 @@
             var x0 = Math.min.apply(null, aX);
             var y0 = Math.min.apply(null, aY);
             rect = [x0, y0, Math.max.apply(null, aX)-x0+1, Math.max.apply(null, aY)-y0+1];
-            if (this._containBall(rect)) return false;
+            if (containBall(rect)) return false;
             aRects.push(rect);
             return aRects;
-        },
-        // checks if rectangular cell area contains at least one ball:
-        _containBall: function(rect) {
-            var x1 = rect[0], x2 = x1+ rect[2] - 1;
-            var y1 = rect[1], y2 = y1+ rect[3] - 1;
-            for (var i = 0; i < nBalls; i++) {
-                var o = aBalls[i], x = o.x, y = o.y;
-                if (x >= x1 && x <= x2 && y >= y1 && y <= y2) return true;
-            }
-            return false;
         }
     };
 
@@ -920,7 +938,7 @@
             var vec = dirset.get(this.dir), vecX = vec[0], vecY = vec[1];
             var bEnd =  false;
             for (var n = 0; n < dist; n++) {
-                if (cellset.find(x + vecX, y + vecY) < 0) {
+                if (cellset.index(x + vecX, y + vecY) < 0) {
                     this.dir = false; break;
                 }
                 x += vecX; y += vecY;
@@ -937,7 +955,7 @@
             this.x = x;
             this.y = y;
             if (!bEnd) return;
-            if (cellset.getPreTrail() == cellset.find(x,y))
+            if (cellset.getPreTrailCell() == cellset.index(x,y))
                 bCollision = true;
             else {
                 this.dir = this.state = false;
