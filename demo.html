@@ -178,6 +178,12 @@ $(function() {
     $(document).keydown(function(e) {
         var key = e.which;
         console.log('ON-keydown: key=%d',key);
+        if (key == 27) {
+            console.log(' pause/resume');
+            bPlay = !bPlay;
+            if (bStarted)
+                picxonix('play', bPlay);
+        }
         if (!bPlay || !(key in keyHash)) return;
         e.preventDefault();
         picxonix('cursorDir', keyHash[key]);
