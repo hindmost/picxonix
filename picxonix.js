@@ -39,6 +39,9 @@
             case 'level': // start new level
                 loadLevel(v2);
                 break;
+            case 'reset': // reset game
+                resetGame();
+                break;
             case 'end': // finish the current level
                 endLevel(v2);
                 break;
@@ -197,17 +200,29 @@
         prepareSquare(cfgMain.colorCursor, cfgMain.colorCursorIn);
         imgCursor = new Image();
         imgCursor.src = ctxTmp.canvas.toDataURL();
-        return {width: width+ 4*sizeCell, height: height+ 4*sizeCell};
+        return true;
     }
 
     function loadLevel(data) {
         if (tLevel || tLastFrame || !data || !data.image) return;
-        if (!data.image) return;
         var img = new Image();
         img.onload = function() {
             applyLevel(img, data);
         };
         img.src = data.image;
+    }
+
+    function resetGame() {
+        setPlayMode(false);
+        endLevel(false);
+        setLevelData(cfgMain.width, cfgMain.height);
+        ctxMain.canvas.width = width+ 4*sizeCell;
+        ctxMain.canvas.height = height+ 4*sizeCell;
+        fillCanvas();
+        ctxMain.fillStyle = cfgMain.colorFill;
+        ctxMain.fillRect(2*sizeCell, 2*sizeCell, width, height);
+        ctxPic.canvas.width = width;
+        ctxPic.canvas.height = height;
     }
 
     function applyLevel(img, data) {
@@ -221,6 +236,10 @@
         ctxPic.canvas.width = width;
         ctxPic.canvas.height = height;
         ctxPic.drawImage(imgPic, 0, 0, width, height, 0, 0, width, height);
+        cfgMain.callback && cfgMain.callback(3);
+        if (data.disabled) {
+            endLevel(true); return;
+        }
         if ('shuffle' in data)
             shuffleImage(data.shuffle);
         var pos = cellset.placeCursor();
@@ -379,6 +398,8 @@
 
     function buildLevelState() {
         return {
+            width: width+ 4*sizeCell,
+            height: height+ 4*sizeCell,
             play: Boolean(tLastFrame),
             posCursor: cursor.pos(),
             warders: nWarders,
@@ -477,6 +498,9 @@
                 this.aCells.push(x >= 0 && x < nW && y >= 0 && y < nH? 0 : CA_CLEAR);
                 aAll.push(i);
             }
+            this.aTrail = [];
+            this.aTrailNodes = [];
+            this.aTrailRects = [];
             fillCellArea(cfgMain.colorFill, 0, 0, nW, nH);
         },
         render: function() {
@@ -787,8 +811,8 @@
                     aTangentNodes.push(this.aTrailNodes[++iLastNode]);
             }
             var bEndAtNode = this.aTrail[l] == this.aTrailNodes[iLastNode+1];
-            if (bEndAtNode) l--;
-            var lenTangent = l - iLastNode;
+            if (bEndAtNode) l++;
+            var lenTangent = l - iStartCell;
             return [
                 aNodes.concat(aTangentNodes.reverse()), n+1+lenTangent, lenTangent,
                 iLastNode, l, bEndAtNode
